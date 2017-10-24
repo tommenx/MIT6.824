@@ -1,7 +1,12 @@
 package mapreduce
 
 import (
+	"encoding/json"
+	"fmt"
 	"hash/fnv"
+	"io/ioutil"
+	"log"
+	"os"
 )
 
 // doMap manages one map task: it reads one of the input files
@@ -14,6 +19,39 @@ func doMap(
 	nReduce int, // the number of reduce task that will be run ("R" in the paper)
 	mapF func(file string, contents string) []KeyValue,
 ) {
+	fmt.Printf("jobName = %s, input filename = %s, map task id = %d, nReduce = %d\n",
+		jobName, inFile, mapTaskNumber, nReduce)
+
+	//byte[],err
+	bytes, err := ioutil.ReadFile(inFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	//through the user program and get kv_pairs
+	kv_pairs := mapF(inFile, string(bytes))
+
+	//get nReduce encoders to write into file
+	encoders := make([]*json.Encoder, nReduce)
+	//create nReduce*nMap files to store k-v
+	for idx := 0; idx < nReduce; idx++ {
+		filename := reduceName(jobName, mapTaskNumber, idx)
+		file_ptr, err := os.Create(filename)
+		if err != nil {
+			log.Fatal("%s can't successful create", filename)
+		}
+		defer file_ptr.Close()
+		encoders[idx] = json.NewEncoder(file_ptr)
+	}
+	//put kv_pairs to the file and change the k by ihash(k)%nReduce
+	for _, key_val := range kv_pairs {
+		key := key_val.Key
+		reduce_idx := ihash(key) % nReduce
+		err := encoders[reduce_idx].Encode(key_val)
+		if err != nil {
+			log.Fatal("unable to write to file")
+		}
+	}
+
 	//
 	// You will need to write this function.
 	//
@@ -53,6 +91,7 @@ func doMap(
 	//
 	// Remember to close the file after you have written all the values!
 	//
+
 }
 
 func ihash(s string) int {
